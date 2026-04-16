@@ -16,6 +16,9 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
+#include "index.h"
+#include "commit.h"   // not required
+
 // ─── Mode Constants ─────────────────────────────────────────────────────────
 
 #define MODE_FILE      0100644
