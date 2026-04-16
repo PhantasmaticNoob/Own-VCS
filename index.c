@@ -235,36 +235,45 @@ int index_load(Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_save(const Index *index) {
-    Index sorted;
     FILE *fp = NULL;
     int fd = -1, dirfd = -1;
     char temp_path[512];
     char hex[HASH_HEX_SIZE + 1];
+    IndexEntry *sorted_entries = NULL;
 
     if (!index) return -1;
-    if (index->count < 0 || index->count > MAX_INDEX_ENTRIES) return -1;
-
-    sorted = *index;
-    qsort(sorted.entries, sorted.count, sizeof(IndexEntry), compare_index_entries);
+    if (index->count > MAX_INDEX_ENTRIES) return -1;
 
     if (snprintf(temp_path, sizeof(temp_path), "%s.tmp", INDEX_FILE) >= (int)sizeof(temp_path)) {
         return -1;
     }
 
+    if (index->count > 0) {
+        sorted_entries = malloc(index->count * sizeof(IndexEntry));
+        if (!sorted_entries) return -1;
+
+        memcpy(sorted_entries, index->entries, index->count * sizeof(IndexEntry));
+        qsort(sorted_entries, index->count, sizeof(IndexEntry), compare_index_entries);
+    }
+
     fp = fopen(temp_path, "w");
-    if (!fp) return -1;
+    if (!fp) {
+        free(sorted_entries);
+        return -1;
+    }
 
-    for (int i = 0; i < sorted.count; i++) {
-        hash_to_hex(&sorted.entries[i].hash, hex);
+    for (size_t i = 0; i < index->count; i++) {
+        hash_to_hex(&sorted_entries[i].hash, hex);
 
-        if (fprintf(fp, "%o %s %lld %zu %s\n",
-                    sorted.entries[i].mode,
+        if (fprintf(fp, "%o %s %llu %u %s\n",
+                    sorted_entries[i].mode,
                     hex,
-                    (long long)sorted.entries[i].mtime_sec,
-                    sorted.entries[i].size,
-                    sorted.entries[i].path) < 0) {
+                    (unsigned long long)sorted_entries[i].mtime_sec,
+                    sorted_entries[i].size,
+                    sorted_entries[i].path) < 0) {
             fclose(fp);
             unlink(temp_path);
+            free(sorted_entries);
             return -1;
         }
     }
@@ -272,30 +281,27 @@ int index_save(const Index *index) {
     if (fflush(fp) != 0) {
         fclose(fp);
         unlink(temp_path);
+        free(sorted_entries);
         return -1;
     }
 
     fd = fileno(fp);
-    if (fd < 0) {
+    if (fd < 0 || fsync(fd) != 0) {
         fclose(fp);
         unlink(temp_path);
-        return -1;
-    }
-
-    if (fsync(fd) != 0) {
-        fclose(fp);
-        unlink(temp_path);
+        free(sorted_entries);
         return -1;
     }
 
     if (fclose(fp) != 0) {
         unlink(temp_path);
+        free(sorted_entries);
         return -1;
     }
-    fp = NULL;
 
     if (rename(temp_path, INDEX_FILE) != 0) {
         unlink(temp_path);
+        free(sorted_entries);
         return -1;
     }
 
@@ -305,6 +311,7 @@ int index_save(const Index *index) {
         close(dirfd);
     }
 
+    free(sorted_entries);
     return 0;
 }
 // Stage a file for the next commit.
