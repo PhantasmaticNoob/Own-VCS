@@ -151,31 +151,41 @@ static uint32_t mode_from_stat(const struct stat *st) {
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
     FILE *fp;
-    char hex[HASH_HEX_SIZE + 1];
-    char path[512];
-    unsigned int mode;
-    long long mtime_sec;
-    long long size;
+    char line[2048];
 
     if (!index) return -1;
-
     index->count = 0;
 
     fp = fopen(INDEX_FILE, "r");
     if (!fp) {
-        if (errno == ENOENT) {
-            return 0;   // No index yet = empty index
-        }
+        if (errno == ENOENT) return 0;   // no index yet
         return -1;
     }
 
-    while (1) {
+    while (fgets(line, sizeof(line), fp)) {
         IndexEntry entry;
-        int rc = fscanf(fp, "%o %64s %lld %lld %511[^\n]\n",
-                        &mode, hex, &mtime_sec, &size, path);
+        char hex[HASH_HEX_SIZE + 1];
+        char path[512];
+        unsigned int mode;
+        long long mtime_sec;
+        long long size;
 
-        if (rc == EOF) break;
-        if (rc != 5) {
+        if (line[0] == '\n' || line[0] == '\0') {
+            continue;
+        }
+
+        if (sscanf(line, "%o %64s %lld %lld %511[^\n]",
+                   &mode, hex, &mtime_sec, &size, path) != 5) {
+            fclose(fp);
+            return -1;
+        }
+
+        if (strlen(hex) != HASH_HEX_SIZE) {
+            fclose(fp);
+            return -1;
+        }
+
+        if (mtime_sec < 0 || size < 0) {
             fclose(fp);
             return -1;
         }
@@ -197,13 +207,21 @@ int index_load(Index *index) {
         strncpy(entry.path, path, sizeof(entry.path) - 1);
         entry.path[sizeof(entry.path) - 1] = '\0';
 
+        for (int i = 0; i < index->count; i++) {
+            if (strcmp(index->entries[i].path, entry.path) == 0) {
+                fclose(fp);
+                return -1;
+            }
+        }
+
         index->entries[index->count++] = entry;
     }
 
     fclose(fp);
+
+    qsort(index->entries, index->count, sizeof(IndexEntry), compare_index_entries);
     return 0;
 }
-
 // Save the index to .pes/index atomically.
 //
 // HINTS - Useful functions and syscalls:
