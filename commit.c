@@ -200,45 +200,52 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     void *data = NULL;
     size_t len = 0;
 
+    printf("DEBUG: starting commit\n");
+
     if (!message || !commit_id_out) return -1;
 
     memset(&commit, 0, sizeof(commit));
 
-    // Build tree from current index
     if (tree_from_index(&tree_id) != 0) {
+        printf("DEBUG: tree_from_index failed\n");
         return -1;
     }
-    commit.tree = tree_id;
 
-    // Parent is current HEAD if it exists
+    printf("DEBUG: tree created\n");
+
     if (head_read(&commit.parent) == 0) {
         commit.has_parent = 1;
     } else {
         commit.has_parent = 0;
     }
 
-    // Fill author/message/timestamp
     snprintf(commit.author, sizeof(commit.author), "%s", pes_author());
     commit.timestamp = (uint64_t)time(NULL);
     snprintf(commit.message, sizeof(commit.message), "%s", message);
 
-    // Serialize commit object
     if (commit_serialize(&commit, &data, &len) != 0) {
+        printf("DEBUG: serialize failed\n");
         return -1;
     }
 
-    // Write commit object
+    printf("DEBUG: serialized\n");
+
     if (object_write(OBJ_COMMIT, data, len, &commit_id) != 0) {
+        printf("DEBUG: object_write failed\n");
         free(data);
         return -1;
     }
 
+    printf("DEBUG: object written\n");
+
     free(data);
 
-    // Move HEAD to new commit
     if (head_update(&commit_id) != 0) {
+        printf("DEBUG: head_update failed\n");
         return -1;
     }
+
+    printf("DEBUG: commit done\n");
 
     *commit_id_out = commit_id;
     return 0;
