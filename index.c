@@ -304,13 +304,25 @@ int index_add(Index *index, const char *path) {
     struct stat st;
     FILE *fp = NULL;
     void *buf = NULL;
-    size_t read_bytes;
+    size_t file_size, total_read;
     ObjectID blob_id;
-    IndexEntry *entry;
+    IndexEntry new_entry;
+    IndexEntry *existing;
 
     if (!index || !path) return -1;
 
-    if (stat(path, &st) != 0) {
+    if (path[0] == '\0') {
+        fprintf(stderr, "error: empty path\n");
+        return -1;
+    }
+
+    if (strlen(path) >= sizeof(new_entry.path)) {
+        fprintf(stderr, "error: path too long: '%s'\n", path);
+        return -1;
+    }
+
+    // Use lstat first to avoid accidentally accepting symlinks
+    if (lstat(path, &st) != 0) {
         fprintf(stderr, "error: cannot stat '%s'\n", path);
         return -1;
     }
@@ -320,48 +332,65 @@ int index_add(Index *index, const char *path) {
         return -1;
     }
 
+    file_size = (size_t)st.st_size;
+
     fp = fopen(path, "rb");
     if (!fp) {
         fprintf(stderr, "error: cannot open '%s'\n", path);
         return -1;
     }
 
-    buf = malloc((size_t)st.st_size);
-    if (!buf && st.st_size > 0) {
-        fclose(fp);
-        return -1;
+    if (file_size > 0) {
+        buf = malloc(file_size);
+        if (!buf) {
+            fclose(fp);
+            return -1;
+        }
+
+        total_read = fread(buf, 1, file_size, fp);
+        if (total_read != file_size) {
+            free(buf);
+            fclose(fp);
+            return -1;
+        }
     }
 
-    read_bytes = fread(buf, 1, (size_t)st.st_size, fp);
-    fclose(fp);
-
-    if (read_bytes != (size_t)st.st_size) {
+    if (fclose(fp) != 0) {
         free(buf);
         return -1;
     }
+    fp = NULL;
 
-    if (object_write(OBJ_BLOB, buf, (size_t)st.st_size, &blob_id) != 0) {
+    if (object_write(OBJ_BLOB, buf, file_size, &blob_id) != 0) {
         free(buf);
         return -1;
     }
 
     free(buf);
+    buf = NULL;
 
-    entry = index_find(index, path);
+    new_entry.mode = mode_from_stat(&st);
+    new_entry.hash = blob_id;
+    new_entry.mtime_sec = st.st_mtime;
+    new_entry.size = file_size;
+    strncpy(new_entry.path, path, sizeof(new_entry.path) - 1);
+    new_entry.path[sizeof(new_entry.path) - 1] = '\0';
 
-    if (!entry) {
+    existing = index_find(index, path);
+
+    if (existing) {
+        *existing = new_entry;
+    } else {
         if (index->count >= MAX_INDEX_ENTRIES) {
+            fprintf(stderr, "error: index is full\n");
             return -1;
         }
-        entry = &index->entries[index->count++];
+        index->entries[index->count++] = new_entry;
     }
 
-    entry->mode = mode_from_stat(&st);
-    entry->hash = blob_id;
-    entry->mtime_sec = st.st_mtime;
-    entry->size = (size_t)st.st_size;
-    strncpy(entry->path, path, sizeof(entry->path) - 1);
-    entry->path[sizeof(entry->path) - 1] = '\0';
+    if (index_save(index) != 0) {
+        return -1;
+    }
 
-    return index_save(index);
+    return 0;
 }
