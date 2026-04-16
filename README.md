@@ -201,23 +201,9 @@ Result: repository corruption.
 ### Key idea
 Objects are never deleted if they might still become reachable.
  
-Getting Started
-Prerequisites
+### Getting Started
 
-sudo apt update && sudo apt install -y gcc build-essential libssl-dev
 
-Using This Repository
-
-This is a template repository. Do not fork it.
-
-    Click "Use this template" → "Create a new repository" on GitHub
-    Name your repository (e.g., SRN-pes-vcs) and set it to public. Replace SRN with your actual SRN, e.g., PESXUG24CSYYY-pes-vcs
-    Clone this repository to your local machine and do all your lab work inside this directory.
-    Important: Remember to commit frequently as you progress. You are required to have a minimum of 5 detailed commits per phase. Refer to Submission Requirements for more details.
-    Clone your new repository and start working
-
-The repository contains skeleton source files with // TODO markers where you need to write code. Functions marked // PROVIDED are complete — do not modify them.
-Building
 
 make          # Build the pes binary
 make all      # Build pes + test binaries
