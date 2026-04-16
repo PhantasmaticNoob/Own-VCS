@@ -233,19 +233,21 @@ int index_load(Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_save(const Index *index) {
-    FILE *fp;
-    int fd;
-    char hex[HASH_HEX_SIZE + 1];
-    char temp_path[512];
     Index sorted;
+    FILE *fp = NULL;
+    int fd = -1, dirfd = -1;
+    char temp_path[512];
+    char hex[HASH_HEX_SIZE + 1];
 
     if (!index) return -1;
+    if (index->count < 0 || index->count > MAX_INDEX_ENTRIES) return -1;
 
-    // Make a sortable copy
     sorted = *index;
     qsort(sorted.entries, sorted.count, sizeof(IndexEntry), compare_index_entries);
 
-    snprintf(temp_path, sizeof(temp_path), "%s.tmp", INDEX_FILE);
+    if (snprintf(temp_path, sizeof(temp_path), "%s.tmp", INDEX_FILE) >= (int)sizeof(temp_path)) {
+        return -1;
+    }
 
     fp = fopen(temp_path, "w");
     if (!fp) return -1;
@@ -272,7 +274,13 @@ int index_save(const Index *index) {
     }
 
     fd = fileno(fp);
-    if (fd >= 0 && fsync(fd) != 0) {
+    if (fd < 0) {
+        fclose(fp);
+        unlink(temp_path);
+        return -1;
+    }
+
+    if (fsync(fd) != 0) {
         fclose(fp);
         unlink(temp_path);
         return -1;
@@ -282,15 +290,21 @@ int index_save(const Index *index) {
         unlink(temp_path);
         return -1;
     }
+    fp = NULL;
 
     if (rename(temp_path, INDEX_FILE) != 0) {
         unlink(temp_path);
         return -1;
     }
 
+    dirfd = open(PES_DIR, O_RDONLY);
+    if (dirfd >= 0) {
+        fsync(dirfd);
+        close(dirfd);
+    }
+
     return 0;
 }
-
 // Stage a file for the next commit.
 //
 // HINTS - Useful functions and syscalls:
